@@ -1,0 +1,278 @@
+:root {
+  color-scheme: light;
+  --bg: #eef2f4;
+  --bg-accent: #e3ebef;
+  --surface: #ffffff;
+  --ink: #12202b;
+  --muted: #5d6f7e;
+  --line: #d5dee5;
+  --brand: #0b1f2a;
+  --accent: #0f766e;
+  --accent-soft: #d8f3ef;
+  --warn: #b54708;
+  --warn-soft: #feecdc;
+  --danger: #b42318;
+  --danger-soft: #fde8e6;
+  --ok: #067647;
+  --ok-soft: #dcfae6;
+  --shadow: 0 10px 30px rgba(11, 31, 42, 0.08);
+  --radius: 16px;
+  --nav-h: 64px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  font-family: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 500px at 10% -10%, #d9ece8 0%, transparent 55%),
+    linear-gradient(180deg, #f7fafb 0%, var(--bg) 40%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+img {
+  max-width: 100%;
+}
+
+.page {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 20px 16px calc(var(--nav-h) + var(--safe-bottom) + 24px);
+}
+
+.page-title {
+  margin: 0 0 4px;
+  font-size: clamp(1.4rem, 4vw, 1.8rem);
+  letter-spacing: -0.02em;
+}
+
+.page-sub {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.panel-pad {
+  padding: 16px;
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.btn {
+  appearance: none;
+  border: 0;
+  border-radius: 12px;
+  min-height: 44px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--brand);
+  color: #f5fbfa;
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-info {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.badge-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.badge-critical {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.badge-ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.list-item {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.list-item:last-child {
+  border-bottom: 0;
+}
+
+.list-item:active {
+  background: #f7fafb;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.kpi {
+  padding: 16px;
+  border-radius: var(--radius);
+  background: linear-gradient(160deg, #102735 0%, #0b1f2a 70%);
+  color: #eef7f5;
+  min-height: 108px;
+}
+
+.kpi strong {
+  display: block;
+  margin-top: 18px;
+  font-size: 1.8rem;
+  letter-spacing: -0.03em;
+}
+
+.kpi span {
+  color: #9db0bc;
+  font-size: 0.85rem;
+}
+
+@media (min-width: 768px) {
+  .page {
+    padding-top: 28px;
+    padding-bottom: 40px;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .desktop-actions {
+    display: flex;
+  }
+}
