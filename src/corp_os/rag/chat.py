@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from corp_os.models.iam import User
 from corp_os.models.rag import ChatAttachment, ChatMessage, ChatSession
-from corp_os.rag.store import retrieve
+from corp_os.rag.graph import run_chat_graph
+from corp_os.rag.llm import answer_with_rag
+from corp_os.rag.memory import load_session_history
 from corp_os.services.audit import write_audit
-from corp_os.services.expense_check import check_expense, is_expense_intent
-from corp_os.services.governance import decide_change_request, list_pending_for_approver
 
 
 def get_or_create_session(db: Session, user: User, session_id: int | None = None) -> ChatSession:
@@ -28,27 +27,8 @@ def get_or_create_session(db: Session, user: User, session_id: int | None = None
 
 
 def build_answer(question: str, hits: list[dict]) -> str:
-    if not hits:
-        return (
-            "我在你有权限的公司资料里没有检索到足够相关的内容。\n"
-            "你可以补充上传相关制度/通知，或换个问法（例如：迟到、考勤、处分、报销）。"
-        )
-
-    event_keywords = ("迟到", "早退", "旷工", "违规", "泄密", "请假")
-    is_event = any(k in question for k in event_keywords)
-
-    lines: list[str] = []
-    if is_event:
-        lines.append(f"针对「{question}」，根据公司制度中与你权限相关的条款，整理如下：")
-    else:
-        lines.append(f"关于「{question}」，我在公司知识库中找到这些依据：")
-    lines.append("")
-    for i, hit in enumerate(hits, start=1):
-        lines.append(f"{i}. 来源：《{hit['title']}》")
-        lines.append(hit["content"].strip())
-        lines.append("")
-    lines.append("说明：以上内容仅来自你可见的公司资料（RAG 检索结果）。")
-    return "\n".join(lines).strip()
+    """RAG answer: LLM when configured, else template."""
+    return answer_with_rag(question, hits)
 
 
 def attach_to_session(
@@ -74,7 +54,7 @@ def attach_to_session(
         ChatMessage(
             session_id=session.id,
             role="system",
-            content=f"已收到材料：[{kind}] {label}",
+            content=f"已收到文件：[{kind}] {label}（暂存，未入库）",
         )
     )
     db.flush()
@@ -96,58 +76,20 @@ def chat_with_rag(
     if session.title == "新对话":
         session.title = message[:40]
 
+    # Load prior turns before appending the current user message.
+    history = load_session_history(db, session.id)
     db.add(ChatMessage(session_id=session.id, role="user", content=message))
 
-    # Governance: list / approve / reject via chat for managers & boss
-    pending_match = any(k in message for k in ("待审批", "待我审批", "审批列表"))
-    decide_match = re.search(r"(批准|同意|驳回|拒绝)\s*#?\s*(\d+)", message)
-    if pending_match or decide_match:
-        if decide_match:
-            decision = "approve" if decide_match.group(1) in {"批准", "同意"} else "reject"
-            req_id = int(decide_match.group(2))
-            try:
-                req = decide_change_request(db, user=user, request_id=req_id, decision=decision)
-                answer = (
-                    f"已处理审批单 #{req.id}：{decision}。\n"
-                    f"文件：《{req.title}》 action={req.action} status={req.status}"
-                )
-            except (PermissionError, ValueError) as exc:
-                answer = f"无法处理审批：{exc}"
-            citations = []
-            action = "chat.governance_decide"
-        else:
-            rows = list_pending_for_approver(db, user)
-            if not rows:
-                answer = "当前没有待你审批的文件变更。"
-            else:
-                lines = ["待你审批的重要文件变更："]
-                for r in rows:
-                    lines.append(
-                        f"- #{r.id} [{r.sensitivity}/{r.action}] 《{r.title}》 "
-                        f"申请人 {r.requested_by}（回复：批准 #{r.id} / 驳回 #{r.id}）"
-                    )
-                answer = "\n".join(lines)
-            citations = []
-            action = "chat.governance_pending"
-    elif is_expense_intent(message):
-        result = check_expense(db, user=user, session_id=session.id, message=message)
-        answer = result["answer"]
-        citations = result["citations"]
-        action = "chat.expense_check"
-    else:
-        hits = retrieve(db, user=user, query=message, top_k=5)
-        answer = build_answer(message, hits)
-        citations = [
-            {
-                "document_id": h["document_id"],
-                "title": h["title"],
-                "category": h["category"],
-                "snippet": h["content"][:180],
-                "score": h["score"],
-            }
-            for h in hits
-        ]
-        action = "chat.rag"
+    result = run_chat_graph(
+        db,
+        user=user,
+        session=session,
+        message=message,
+        history=history,
+    )
+    answer = result.get("answer") or ""
+    citations = list(result.get("citations") or [])
+    action = result.get("action") or "chat.rag"
 
     db.add(
         ChatMessage(
@@ -164,7 +106,13 @@ def chat_with_rag(
         action=action,
         resource_type="chat_session",
         resource_id=str(session.id),
-        detail={"question": message, "hit_count": len(citations)},
+        detail={
+            "question": message,
+            "hit_count": len(citations),
+            "route": result.get("route"),
+            "intent": result.get("intent"),
+            "intent_confidence": result.get("intent_confidence"),
+        },
     )
     db.commit()
     db.refresh(session)
@@ -195,3 +143,45 @@ def list_messages(db: Session, *, user: User, session_id: int) -> list[dict]:
             }
         )
     return out
+
+
+def list_sessions(db: Session, *, user: User, limit: int = 50) -> list[dict]:
+    """Recent chat sessions for the current user (does not delete anything)."""
+    limit = max(1, min(int(limit or 50), 100))
+    rows = list(
+        db.scalars(
+            select(ChatSession)
+            .where(ChatSession.user_username == user.username)
+            .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+            .limit(limit)
+        )
+    )
+    return [
+        {
+            "id": row.id,
+            "title": row.title or "新对话",
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+
+
+def delete_session(db: Session, *, user: User, session_id: int) -> None:
+    """Delete a chat session and its messages/attachments (owner only)."""
+    session = db.get(ChatSession, session_id)
+    if not session or session.user_username != user.username:
+        raise ValueError("会话不存在")
+
+    db.execute(delete(ChatMessage).where(ChatMessage.session_id == session_id))
+    db.execute(delete(ChatAttachment).where(ChatAttachment.session_id == session_id))
+    db.delete(session)
+    write_audit(
+        db,
+        actor=user.username,
+        action="chat.session_delete",
+        resource_type="chat_session",
+        resource_id=str(session_id),
+        detail={"title": session.title},
+    )
+    db.commit()

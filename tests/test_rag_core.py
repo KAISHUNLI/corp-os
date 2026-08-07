@@ -1,4 +1,6 @@
 from corp_os.rag.core import chunk_text, LocalEmbedder, cosine
+from corp_os.rag.embeddings import HashEmbedder, get_embedder, reset_embedder_cache
+from corp_os.config import get_settings
 
 
 def test_chunk_and_embed_similarity():
@@ -8,3 +10,10 @@ def test_chunk_and_embed_similarity():
     q = emb.embed_query("我迟到了五次有什么后果")
     d = emb.embed_documents(["当月迟到 5 次及以上：记过处分，取消季度奖金。"])[0]
     assert cosine(q, d) > cosine(q, emb.embed_documents(["差旅报销 7 个工作日"])[0])
+
+
+def test_default_test_embedder_is_hash():
+    get_settings.cache_clear()
+    reset_embedder_cache()
+    emb = get_embedder()
+    assert isinstance(emb, HashEmbedder)

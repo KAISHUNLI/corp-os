@@ -32,12 +32,6 @@ export function useAuth() {
     user.value = info
   }
 
-  async function loginWithDingTalkMock(dingtalkUserId: string) {
-    const info = await api.dingtalkMock(dingtalkUserId)
-    persistAuth(info)
-    user.value = info
-  }
-
   function logout() {
     clearAuthStorage()
     user.value = null
@@ -49,7 +43,6 @@ export function useAuth() {
     isLoggedIn,
     bootstrap,
     loginWithAccount,
-    loginWithDingTalkMock,
     logout,
   }
 }

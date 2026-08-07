@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from corp_os.config import get_settings
@@ -8,9 +9,41 @@ from corp_os.models.iam import Department, Role, User
 from corp_os.rag.store import index_document
 from corp_os.services.security import hash_password
 
+_FINANCE_PERMS = (
+    "chat,upload.personal,finance.read,erp.inventory,erp.products,"
+    "erp.health,erp.finance,erp.finance.write,erp.analytics,erp.purchase,"
+    "governance.read"
+)
+_EMPLOYEE_PERMS = "chat,upload.personal,erp.health"
+_LEGAL_PERMS = "chat,upload.personal,governance.read,erp.health"
+
+
+def ensure_erp_gateway_role_perms(db: Session) -> None:
+    """Idempotent: expand role permission strings for ERP gateway modules."""
+    wanted = {
+        "employee": _EMPLOYEE_PERMS,
+        "legal": _LEGAL_PERMS,
+        "finance": _FINANCE_PERMS,
+    }
+    changed = False
+    for code, perms in wanted.items():
+        role = db.scalar(select(Role).where(Role.code == code))
+        if role is None:
+            continue
+        current = {p.strip() for p in (role.permissions or "").split(",") if p.strip()}
+        if "*" in current:
+            continue
+        needed = {p.strip() for p in perms.split(",") if p.strip()}
+        if not needed.issubset(current):
+            role.permissions = ",".join(sorted(current | needed))
+            changed = True
+    if changed:
+        db.commit()
+
 
 def seed_if_empty(db: Session) -> None:
     if db.query(User).first():
+        ensure_erp_gateway_role_perms(db)
         return
 
     settings = get_settings()
@@ -23,9 +56,13 @@ def seed_if_empty(db: Session) -> None:
             Department(code="delivery", name="交付实施部"),
             Department(code="hr", name="人力资源部"),
             Department(code="exec", name="管理层"),
-            Role(code="employee", name="员工", permissions="chat,upload"),
-            Role(code="legal", name="法务", permissions="chat,upload"),
-            Role(code="finance", name="财务", permissions="chat,upload,finance.read"),
+            Role(code="employee", name="员工", permissions=_EMPLOYEE_PERMS),
+            Role(code="legal", name="法务", permissions=_LEGAL_PERMS),
+            Role(
+                code="finance",
+                name="财务",
+                permissions=_FINANCE_PERMS,
+            ),
             Role(code="boss", name="老板", permissions="*"),
             Role(code="admin", name="系统管理员", permissions="*"),
             User(
@@ -70,6 +107,7 @@ def seed_if_empty(db: Session) -> None:
                 password_hash=password_hash,
                 department_code="exec",
                 role_code="boss",
+                erp_username="admin",
                 dingtalk_userid="ding_boss",
                 is_dept_manager=False,
             ),
@@ -79,8 +117,18 @@ def seed_if_empty(db: Session) -> None:
                 password_hash=password_hash,
                 department_code="hr",
                 role_code="admin",
+                erp_username="admin",
                 dingtalk_userid="ding_admin",
                 is_dept_manager=False,
+            ),
+            User(
+                username="hr_manager",
+                display_name="人事主管",
+                password_hash=password_hash,
+                department_code="hr",
+                role_code="employee",
+                dingtalk_userid="ding_hr_mgr",
+                is_dept_manager=True,
             ),
         ]
     )

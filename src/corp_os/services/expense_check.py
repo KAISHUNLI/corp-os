@@ -43,31 +43,52 @@ KIND_ALIASES = {
     "出差审批": "travel_approval",
     "itinerary": "itinerary",
     "行程": "itinerary",
+    "policy": "policy",
+    "制度": "policy",
+    "notice": "notice",
+    "通知": "notice",
     "other": "other",
 }
 
+KIND_LABELS = {
+    "invoice": "发票",
+    "train_ticket": "车票/机票",
+    "travel_approval": "出差审批单",
+    "itinerary": "行程说明",
+    "policy": "制度/规章",
+    "notice": "通知/公告",
+    "other": "其他资料",
+}
+
+
+def kind_label(kind: str) -> str:
+    return KIND_LABELS.get(kind, kind)
+
 
 def normalize_kind(raw: str | None, filename: str = "", note: str = "", text: str = "") -> str:
-    blob = f"{raw or ''} {filename} {note} {text}".lower()
-    # Prefer explicit raw mapping
+    """Auto-detect material kind from explicit hint + filename + content.
+
+    Market-style: no manual picker; classify by content/filename, fall back to other.
+    """
     if raw:
         key = raw.strip().lower()
         if key in KIND_ALIASES:
             return KIND_ALIASES[key]
-    for token, kind in (
-        ("审批", "travel_approval"),
-        ("出差申请", "travel_approval"),
-        ("火车票", "train_ticket"),
-        ("高铁", "train_ticket"),
-        ("机票", "train_ticket"),
-        ("车票", "train_ticket"),
-        ("行程单", "train_ticket"),
-        ("发票", "invoice"),
-        ("invoice", "invoice"),
-        ("行程说明", "itinerary"),
-        ("出差报告", "itinerary"),
-    ):
-        if token in blob:
+        mapped = KIND_ALIASES.get(raw.strip())
+        if mapped:
+            return mapped
+
+    blob = f"{filename} {note} {text}".lower()
+    rules: list[tuple[tuple[str, ...], str]] = [
+        (("出差审批", "审批单", "请假审批", "travel_approval", "approval form"), "travel_approval"),
+        (("火车票", "高铁票", "高铁", "车票", "机票", "登机牌", "汽车票", "行程单", "train", "flight", "air ticket"), "train_ticket"),
+        (("增值税发票", "电子发票", "普通发票", "发票", "invoice", "fapiao"), "invoice"),
+        (("行程说明", "出差报告", "行程安排", "itinerary"), "itinerary"),
+        (("员工手册", "管理办法", "规章制度", "公司章程", "制度"), "policy"),
+        (("通知", "公告", "通告"), "notice"),
+    ]
+    for tokens, kind in rules:
+        if any(token.lower() in blob for token in tokens):
             return kind
     return "other"
 

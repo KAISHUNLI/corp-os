@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from corp_os.domain.categories import category_owner_hint, owner_departments_for
 from corp_os.models.document import Document
 from corp_os.models.governance import DocumentChangeRequest
 from corp_os.models.iam import User
@@ -44,24 +45,53 @@ def classify_sensitivity(
     return "personal"
 
 
+def can_upload_company_knowledge(user: User) -> bool:
+    """公司知识（制度/通知/部门资料等）仅主管、老板、管理员可传。"""
+    return is_elevated(user) or bool(user.is_dept_manager)
+
+
+def is_session_ephemeral_uploader(user: User) -> bool:
+    """普通员工：上传仅供当前对话（类似豆包），不进公司档案/向量库。"""
+    return not can_upload_company_knowledge(user)
+
+
+def can_own_category(user: User, *, category: str, visibility: str) -> bool:
+    """对应主管：行政制度归人事、技术资料归交付等；老板/管理员全类目。"""
+    if is_elevated(user):
+        return True
+    if not user.is_dept_manager:
+        return False
+    dept = (user.department_code or "").strip()
+    owners = owner_departments_for(category)
+    if owners:
+        return dept in owners
+    # other：本部门主管只能传本部门可见，不能冒充全公司规范
+    if visibility == "department":
+        return bool(dept)
+    if visibility == "private" and category in {"invoice", "other"}:
+        return True
+    return False
+
+
 def can_upload(user: User, *, category: str, visibility: str, sensitivity: str) -> tuple[bool, str]:
-    """Whether user may submit this upload (possibly into approval queue)."""
+    """员工=会话临时材料；公司知识=对应类目主管/老板。"""
     if is_elevated(user):
         return True, "ok"
-    if sensitivity == "personal":
-        return True, "ok"
-    # Important/critical: only related roles may propose
-    if sensitivity == "critical":
-        if user.role_code in {"finance", "hr"} or user.is_dept_manager:
+
+    is_personal_private = visibility == "private" and sensitivity == "personal"
+    if is_session_ephemeral_uploader(user):
+        if is_personal_private:
             return True, "ok"
-        return False, "机密类文件（薪资/财报等）仅财务/人事或部门主管可提交，且需老板或主管审批"
-    # important
-    if user.role_code in {"employee", "legal", "finance"} or user.is_dept_manager:
-        # employees can propose department/company docs but need approval
-        if visibility == "company" and user.role_code == "employee" and not user.is_dept_manager:
-            return True, "ok"  # queued for approval
-        return True, "ok"
-    return False, "当前角色无权上传该类文件"
+        return (
+            False,
+            "普通员工上传仅用于当前对话（报销预审等），不能写入公司知识库；公司资料请由对应主管或老板上传",
+        )
+
+    if not can_own_category(user, category=category, visibility=visibility):
+        hint = category_owner_hint(category)
+        return False, f"该类公司知识（{category}）仅可由{hint}上传"
+
+    return True, "ok"
 
 
 def needs_approval(user: User, sensitivity: str) -> bool:

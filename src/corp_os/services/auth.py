@@ -29,6 +29,7 @@ def issue_token_for_user(user: User) -> dict:
         "display_name": user.display_name,
         "department_code": user.department_code,
         "role_code": user.role_code,
+        "erp_username": user.erp_username,
         "access_token": token,
         "token_type": "bearer",
     }

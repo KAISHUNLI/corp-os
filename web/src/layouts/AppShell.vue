@@ -29,14 +29,15 @@ const subtitle = computed(() => `${user.value?.display_name || ''} · ${user.val
 
 <style scoped>
 .shell {
-  min-height: 100dvh;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
 .topbar {
-  position: sticky;
-  top: 0;
+  flex: 0 0 auto;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -96,9 +97,16 @@ const subtitle = computed(() => `${user.value?.display_name || ''} · ${user.val
 }
 
 .main {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.main > :deep(*) {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
 }
 </style>

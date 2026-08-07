@@ -1,86 +1,96 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from corp_os.config import get_settings
 from corp_os.db import get_db
 from corp_os.models.iam import User
-from corp_os.schemas import LoginIn, TokenUserOut, UserOut
+from corp_os.schemas import LoginIn, SsoProvidersOut, TokenUserOut, UserOut
+from corp_os.services.audit import write_audit
 from corp_os.services.auth import authenticate_user, get_current_user, issue_token_for_user
-from corp_os.services.auth_providers import list_auth_providers
-from corp_os.services.dingtalk import (
-    dingtalk_enabled,
-    exchange_dingtalk_code,
-    mock_dingtalk_login,
-)
+from corp_os.services.rate_limit import login_rate_limiter
 
 router = APIRouter()
 
 
-class AuthProviderOut(BaseModel):
-    id: str
-    name: str
-    type: str
-    enabled: bool
-    login_url: str | None = None
-    hint: str | None = None
-    mock_enabled: bool | None = None
-
-
-class AuthProvidersOut(BaseModel):
-    providers: list[AuthProviderOut]
-    default_provider: str = "account"
-    demo_password_hint: str | None = None
-
-
-class DingTalkMockIn(BaseModel):
-    dingtalk_userid: str = Field(default="ding_alice")
-
-
-@router.get("/providers", response_model=AuthProvidersOut)
-def auth_providers() -> AuthProvidersOut:
-    settings = get_settings()
-    providers = [AuthProviderOut(**item) for item in list_auth_providers()]
-    default = "account"
-    if not any(p.id == "account" and p.enabled for p in providers):
-        enabled = next((p.id for p in providers if p.enabled), "account")
-        default = enabled
-    hint = settings.demo_password if settings.env == "dev" else None
-    return AuthProvidersOut(
-        providers=providers,
-        default_provider=default,
-        demo_password_hint=hint,
-    )
-
-
 @router.post("/login", response_model=TokenUserOut)
-def account_login(body: LoginIn, db: Session = Depends(get_db)) -> dict:
+def account_login(body: LoginIn, request: Request, db: Session = Depends(get_db)) -> dict:
     settings = get_settings()
     if not settings.auth_account_enabled:
         raise HTTPException(status_code=400, detail="账号登录未启用")
+
+    client = request.client.host if request.client else "unknown"
+    key = f"login:{client}:{body.username.strip().lower()}"
+    if not login_rate_limiter.allow(key, limit=settings.login_rate_limit_per_minute):
+        raise HTTPException(status_code=429, detail="登录尝试过于频繁，请稍后再试")
+
     user = authenticate_user(db, body.username.strip(), body.password)
     if not user:
+        write_audit(
+            db,
+            actor=body.username.strip() or None,
+            action="auth.login_failed",
+            resource_type="user",
+            resource_id=body.username.strip() or None,
+            detail={"client": client},
+        )
+        db.commit()
         raise HTTPException(status_code=401, detail="账号或密码错误")
-    return issue_token_for_user(user)
 
-
-@router.post("/dingtalk/mock", response_model=TokenUserOut)
-def dingtalk_mock(body: DingTalkMockIn, db: Session = Depends(get_db)) -> dict:
-    settings = get_settings()
-    if not settings.dingtalk_mock_enabled:
-        raise HTTPException(status_code=400, detail="钉钉 mock 登录未启用")
-    user = mock_dingtalk_login(db, body.dingtalk_userid)
-    return issue_token_for_user(user)
-
-
-@router.get("/dingtalk/callback", response_model=TokenUserOut)
-async def dingtalk_callback(code: str = Query(...), db: Session = Depends(get_db)) -> dict:
-    if not dingtalk_enabled():
-        raise HTTPException(status_code=400, detail="未配置钉钉，请使用账号登录或其他已启用的方式")
-    user = await exchange_dingtalk_code(db, code)
-    return issue_token_for_user(user)
+    token = issue_token_for_user(user)
+    write_audit(
+        db,
+        actor=user.username,
+        action="auth.login",
+        resource_type="user",
+        resource_id=str(user.id),
+        detail={"client": client},
+    )
+    db.commit()
+    return token
 
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)) -> User:
     return user
+
+
+@router.get("/sso/providers", response_model=SsoProvidersOut)
+def sso_providers() -> dict:
+    """SSO capability discovery (DingTalk / OIDC are stubs until IdP is wired)."""
+    settings = get_settings()
+    return {
+        "account_password": settings.auth_account_enabled,
+        "dingtalk": {
+            "enabled": settings.sso_dingtalk_enabled,
+            "status": "ready" if settings.sso_dingtalk_enabled and settings.sso_dingtalk_app_key else "stub",
+            "app_key_configured": bool(settings.sso_dingtalk_app_key),
+        },
+        "oidc": {
+            "enabled": settings.sso_oidc_enabled,
+            "status": "ready" if settings.sso_oidc_enabled and settings.sso_oidc_issuer else "stub",
+            "issuer": settings.sso_oidc_issuer or None,
+            "client_id": settings.sso_oidc_client_id or None,
+        },
+    }
+
+
+@router.post("/sso/dingtalk")
+def sso_dingtalk_login() -> None:
+    settings = get_settings()
+    if not settings.sso_dingtalk_enabled:
+        raise HTTPException(status_code=501, detail="钉钉 SSO 未启用（CORP_OS_SSO_DINGTALK_ENABLED）")
+    raise HTTPException(
+        status_code=501,
+        detail="钉钉 SSO 对接尚未实现；请使用账号密码登录。用户表已预留 dingtalk_userid。",
+    )
+
+
+@router.post("/sso/oidc")
+def sso_oidc_login() -> None:
+    settings = get_settings()
+    if not settings.sso_oidc_enabled:
+        raise HTTPException(status_code=501, detail="OIDC SSO 未启用（CORP_OS_SSO_OIDC_ENABLED）")
+    raise HTTPException(
+        status_code=501,
+        detail="OIDC SSO 对接尚未实现；请使用账号密码登录。",
+    )

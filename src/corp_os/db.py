@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from corp_os.config import get_settings
@@ -18,6 +18,10 @@ def _sqlite_path(database_url: str) -> Path | None:
     return Path(raw)
 
 
+def _is_sqlite(database_url: str) -> bool:
+    return database_url.startswith("sqlite")
+
+
 def _make_engine():
     settings = get_settings()
     sqlite_path = _sqlite_path(settings.database_url)
@@ -25,11 +29,18 @@ def _make_engine():
         sqlite_path.parent.mkdir(parents=True, exist_ok=True)
 
     connect_args = {}
-    if settings.database_url.startswith("sqlite"):
+    engine_kwargs: dict = {"future": True}
+    if _is_sqlite(settings.database_url):
         connect_args["check_same_thread"] = False
-    engine = create_engine(settings.database_url, future=True, connect_args=connect_args)
+    else:
+        # PostgreSQL: recycle dead connections after Docker restart / idle timeout.
+        engine_kwargs["pool_pre_ping"] = True
+        engine_kwargs["pool_size"] = 5
+        engine_kwargs["max_overflow"] = 10
 
-    if settings.database_url.startswith("sqlite"):
+    engine = create_engine(settings.database_url, connect_args=connect_args, **engine_kwargs)
+
+    if _is_sqlite(settings.database_url):
 
         @event.listens_for(engine, "connect")
         def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:
@@ -53,6 +64,7 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
+    """Prepare storage. SQLite: create tables. PostgreSQL: schema via Alembic."""
     from corp_os import models  # noqa: F401
 
     settings = get_settings()
@@ -60,4 +72,11 @@ def init_db() -> None:
     sqlite_path = _sqlite_path(settings.database_url)
     if sqlite_path is not None:
         sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(bind=engine)
+
+    if _is_sqlite(settings.database_url):
+        Base.metadata.create_all(bind=engine)
+        return
+
+    # PostgreSQL: connectivity check only. Tables come from `alembic upgrade head`.
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))

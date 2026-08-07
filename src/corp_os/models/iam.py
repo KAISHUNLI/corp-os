@@ -34,6 +34,8 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     department_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     role_code: Mapped[str] = mapped_column(String(64), default="employee")
+    # Bound company-er login name (identity mapping). Password comes from credential map / service account.
+    erp_username: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     dingtalk_userid: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True, index=True)
     is_dept_manager: Mapped[bool] = mapped_column(default=False)
     is_active: Mapped[bool] = mapped_column(default=True)

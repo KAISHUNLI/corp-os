@@ -24,3 +24,35 @@ CATEGORIES: list[Category] = [
 ]
 
 CATEGORY_MAP = {c.code: c for c in CATEGORIES}
+
+# 公司知识入库：类目 → 可上传的部门（对应主管）。老板/管理员不受限。
+# 空集合表示仅允许「本部门可见」材料由本部门主管上传，不可直接发全公司。
+CATEGORY_OWNER_DEPARTMENTS: dict[str, frozenset[str]] = {
+    "policy": frozenset({"hr", "exec"}),
+    "notice": frozenset({"hr", "exec"}),
+    "hr": frozenset({"hr"}),
+    "tech": frozenset({"delivery"}),
+    "requirement": frozenset({"delivery"}),
+    "contract": frozenset({"legal"}),
+    "invoice": frozenset({"finance"}),
+    "other": frozenset(),
+}
+
+
+def owner_departments_for(category: str) -> frozenset[str]:
+    return CATEGORY_OWNER_DEPARTMENTS.get(category, frozenset())
+
+
+def category_owner_hint(category: str) -> str:
+    owners = owner_departments_for(category)
+    if not owners:
+        return "本部门主管（仅部门可见）或老板"
+    names = {
+        "hr": "人事行政",
+        "exec": "管理层",
+        "delivery": "交付/研发",
+        "legal": "法务",
+        "finance": "财务",
+    }
+    label = "、".join(names.get(c, c) for c in sorted(owners))
+    return f"{label}主管或老板"

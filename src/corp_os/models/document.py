@@ -27,7 +27,8 @@ class Document(Base):
     visibility: Mapped[str] = mapped_column(String(32), default="company", index=True)
     visibility_target: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
-    status: Mapped[str] = mapped_column(String(32), default="active")  # active|rejected|archived
+    # active = 可检索 | pending_approval | rejected | archived | session_temp = 仅当前对话
+    status: Mapped[str] = mapped_column(String(32), default="active")
     uploaded_by: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     department_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 

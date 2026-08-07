@@ -30,14 +30,11 @@ export interface ChatMessage {
   created_at?: string | null
 }
 
-export interface AuthProvider {
-  id: string
-  name: string
-  type: string
-  enabled: boolean
-  login_url?: string | null
-  hint?: string | null
-  mock_enabled?: boolean | null
+export interface ChatSession {
+  id: number
+  title: string
+  updated_at?: string | null
+  created_at?: string | null
 }
 
 export interface ChatUploadResult {
@@ -83,7 +80,18 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     ...authHeaders(),
     ...(init?.headers || {}),
   }
-  const res = await fetch(url, { ...init, headers })
+  let res: Response
+  try {
+    res = await fetch(url, { ...init, headers })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err
+    }
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw err
+    }
+    throw err
+  }
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -100,12 +108,14 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof DOMException && err.name === 'AbortError') ||
+    (err instanceof Error && err.name === 'AbortError')
+  )
+}
+
 export const api = {
-  authProviders() {
-    return request<{ providers: AuthProvider[]; default_provider: string; demo_password_hint?: string | null }>(
-      '/api/v1/auth/providers',
-    )
-  },
   login(username: string, password: string) {
     return request<UserInfo>('/api/v1/auth/login', {
       method: 'POST',
@@ -113,25 +123,26 @@ export const api = {
       body: JSON.stringify({ username, password }),
     })
   },
-  dingtalkMock(dingtalk_userid: string) {
-    return request<UserInfo>('/api/v1/auth/dingtalk/mock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dingtalk_userid }),
-    })
-  },
   me() {
     return request<UserInfo>('/api/v1/auth/me')
   },
-  chat(message: string, sessionId?: number | null) {
+  chat(message: string, sessionId?: number | null, opts?: { signal?: AbortSignal }) {
     return request<ChatResult>('/api/v1/chat/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, session_id: sessionId || null }),
+      signal: opts?.signal,
     })
+  },  sessions() {
+    return request<ChatSession[]>('/api/v1/chat/sessions')
   },
   messages(sessionId: number) {
     return request<ChatMessage[]>(`/api/v1/chat/sessions/${sessionId}/messages`)
+  },
+  deleteSession(sessionId: number) {
+    return request<{ ok: boolean; session_id: number }>(`/api/v1/chat/sessions/${sessionId}`, {
+      method: 'DELETE',
+    })
   },
   async upload(file: File, opts?: { note?: string; textOverride?: string; kind?: string; sessionId?: number | null }) {
     const form = new FormData()
@@ -144,5 +155,90 @@ export const api = {
       method: 'POST',
       body: form,
     })
+  },
+  async downloadGenerated(fileId: string) {
+    const res = await fetch(`/api/v1/chat/generated/${fileId}`, {
+      headers: authHeaders(),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || `下载失败 (${res.status})`)
+    }
+    const blob = await res.blob()
+    const disposition = res.headers.get('Content-Disposition') || ''
+    const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(disposition)
+    const filename = match ? decodeURIComponent(match[1].replace(/"/g, '')) : `${fileId}.bin`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+  async downloadLibrary(documentId: number) {
+    const res = await fetch(`/api/v1/chat/library/${documentId}`, {
+      headers: authHeaders(),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || `下载失败 (${res.status})`)
+    }
+    const blob = await res.blob()
+    const disposition = res.headers.get('Content-Disposition') || ''
+    const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(disposition)
+    const filename = match
+      ? decodeURIComponent(match[1].replace(/"/g, ''))
+      : `document-${documentId}`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+  async fetchGeneratedBuffer(fileId: string): Promise<{
+    buffer: ArrayBuffer
+    filename: string
+    contentType: string
+  }> {
+    const res = await fetch(`/api/v1/chat/generated/${fileId}`, {
+      headers: authHeaders(),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || `加载失败 (${res.status})`)
+    }
+    const buffer = await res.arrayBuffer()
+    const disposition = res.headers.get('Content-Disposition') || ''
+    const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(disposition)
+    const filename = match ? decodeURIComponent(match[1].replace(/"/g, '')) : `${fileId}.bin`
+    const contentType = res.headers.get('Content-Type') || 'application/octet-stream'
+    return { buffer, filename, contentType }
+  },
+  async fetchLibraryBuffer(documentId: number): Promise<{
+    buffer: ArrayBuffer
+    filename: string
+    contentType: string
+  }> {
+    const res = await fetch(`/api/v1/chat/library/${documentId}`, {
+      headers: authHeaders(),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || `加载失败 (${res.status})`)
+    }
+    const buffer = await res.arrayBuffer()
+    const disposition = res.headers.get('Content-Disposition') || ''
+    const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(disposition)
+    const filename = match
+      ? decodeURIComponent(match[1].replace(/"/g, ''))
+      : `document-${documentId}`
+    const contentType = res.headers.get('Content-Type') || 'application/octet-stream'
+    return { buffer, filename, contentType }
+  },
+  previewGenerated(fileId: string) {
+    return request<{ file_id: string; filename: string; kind: string; html: string }>(
+      `/api/v1/chat/generated/${fileId}/preview`,
+    )
   },
 }

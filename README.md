@@ -1,31 +1,23 @@
 # corp-os
 
-企业智能体：钉钉登录 + 对话 + 上传，背后是公司自建 RAG。
+企业智能体：两条线。
 
-## 产品形态
+1. **上传入库**：准入 → 分类/敏感度 → 权限/审批 → 切片检索  
+2. **对话使用**：问知识走权限 RAG；办事以后接 ERP（须审批）
 
-只有两件事：
+## 从零搭建
 
-1. **上传**：把公司章程、制度、通知等资料送进知识库  
-2. **对话**：直接问智能体（查章程 / 用事件匹配制度后果）
+→ [docs/from-scratch/README.md](docs/from-scratch/README.md)
 
-不做文库浏览型文档管理系统。
-
-## 能力
-
-| 模块 | 说明 |
-|---|---|
-| 账号密码登录 | 账号+密码校验，签发 Bearer token |
-| 钉钉登录 | 支持钉钉 OAuth；本地可 mock（同样签发 token） |
-| 上传入库 | 自动分块、向量化，写入公司 RAG |
-| 对话检索 | 按权限检索相关片段并回答，带来源 |
-| 权限 | 检索只使用当前用户可见文档 |
-| 上传审批 | 重要/机密文件增删改需主管或老板同意后才入库 |
+```bash
+cd deploy && cp .env.example .env && docker compose up -d
+PYTHONPATH=src .venv/bin/alembic upgrade head
+```
 
 ## 启动
 
 ```bash
-# 后端
+# 后端（先起 Postgres）
 source .venv/bin/activate
 uvicorn corp_os.app:app --reload --app-dir src --host 127.0.0.1 --port 8001
 
@@ -33,35 +25,28 @@ uvicorn corp_os.app:app --reload --app-dir src --host 127.0.0.1 --port 8001
 cd web && npm run dev
 ```
 
-- 前端：http://127.0.0.1:5173  
-- API：http://127.0.0.1:8001/docs  
+- 前端 http://127.0.0.1:5173  
+- API http://127.0.0.1:8001/docs  
+- 登录：`alice` / `demo123`（更多账号见 seed）
 
-## 登录方式（可插拔）
+## 上传线怎么读代码
 
-- **账号密码登录**：默认启用；演示环境统一密码 `demo123`（可用 `CORP_OS_DEMO_PASSWORD` 改）  
-- **钉钉 / 企业微信 / 飞书**：可选插件，公司用哪个再配哪个  
+看 `src/corp_os/services/ingest.py`，四个函数按顺序：
 
-登录成功后签发 Bearer token；后续 API 使用 `Authorization: Bearer <token>`。
+`gate_file` → `classify_content` → `authorize_upload` → `commit_document`  
+入口：`ingest_upload`
 
-未配置钉钉时，系统照样可用。
+## Embedding + Milvus（第3/4步）
 
-## 上传与审批
+默认本地 BGE + Milvus。切换模型或迁库后重嵌：
 
-- 个人报销材料（私有发票/车票）：可直接上传做预审  
-- 制度/通知/技术资料等重要文件：提交后进入待审批，**不入库检索**  
-- 薪资/财报等机密：仅财务等角色可提交，且需**老板**批准  
-- 删除重要文件同样走审批  
-- 主管/老板在对话中发送「待我审批」，再「批准 #单号」/「驳回 #单号」
+```bash
+export HF_ENDPOINT=https://hf-mirror.com   # 国内可选
+PYTHONPATH=src .venv/bin/python -m corp_os.scripts.reindex_embeddings
+```
 
-### 演示账号
-
-统一密码：`demo123`
-
-| 用户 | 身份 | 可见差异 |
-|---|---|---|
-| `alice` | 普通员工 | 公开制度；看不到薪资/财报；公司级上传需审批 |
-| `delivery_manager` | 交付主管 | 可批本部门重要文件 |
-| `finance01` | 财务主管 | 另可见薪资表、财务报表；可批本部门重要文件 |
-| `legal01` | 法务主管 | 另可见法务内部清单；可批本部门 |
-| `boss` | 老板 | 全部可见；可批全部（含机密） |
-| `admin` | 管理员 | 全部可见；可批全部 |
+- Embedding → [docs/from-scratch/03-embedding.md](docs/from-scratch/03-embedding.md)  
+- Milvus → [docs/from-scratch/04-milvus.md](docs/from-scratch/04-milvus.md)  
+- LLM 回答 → [docs/from-scratch/05-rag.md](docs/from-scratch/05-rag.md)  
+- LangGraph → [docs/from-scratch/06-langgraph.md](docs/from-scratch/06-langgraph.md)  
+- ERP 工具 → [docs/from-scratch/07-erp-tools.md](docs/from-scratch/07-erp-tools.md)
