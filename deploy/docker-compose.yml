@@ -155,6 +155,7 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - corp_os_net
+      - company_er_net
 
   web:
     profiles: ["app"]
@@ -182,3 +183,7 @@ volumes:
 networks:
   corp_os_net:
     driver: bridge
+  # 同机 company-er 的网络名：docker network ls | grep er_net
+  company_er_net:
+    external: true
+    name: ${COMPANY_ER_DOCKER_NETWORK:-deploy_er_net}
