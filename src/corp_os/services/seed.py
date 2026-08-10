@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from corp_os.config import get_settings
 from corp_os.models.document import Document
 from corp_os.models.iam import Department, Role, User
-from corp_os.rag.store import index_document
 from corp_os.services.security import hash_password
 
 _FINANCE_PERMS = (
@@ -254,7 +253,6 @@ def seed_if_empty(db: Session) -> None:
         ),
     ]
     db.add_all(samples)
-    db.flush()
-    for doc in samples:
-        index_document(db, doc)
     db.commit()
+    # 不在启动路径里同步 embedding（首次要下模型，Docker 健康检查会超时）。
+    # 由 app lifespan 后台 warmup/reindex 补齐向量。

@@ -34,7 +34,7 @@ ENV HF_HOME=/data/hf-cache
 
 EXPOSE 8001
 
-HEALTHCHECK --interval=20s --timeout=5s --retries=10 --start-period=120s \
+HEALTHCHECK --interval=20s --timeout=5s --retries=15 --start-period=300s \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/v1/health')"
 
 ENTRYPOINT ["/entrypoint.sh"]

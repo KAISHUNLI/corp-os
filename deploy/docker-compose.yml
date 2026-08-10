@@ -120,8 +120,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
       interval: 15s
       timeout: 10s
-      retries: 20
-      start_period: 40s
+      retries: 40
+      start_period: 120s
     networks:
       - corp_os_net
 
@@ -164,7 +164,7 @@ services:
     container_name: corp_os_web
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "${WEB_PORT:-8081}:80"
     networks:

@@ -30,9 +30,10 @@ def _apply_hf_endpoint() -> None:
 
 
 def _warmup_rag_stack() -> None:
-    """Load embedder (and touch Milvus) in background so first chat is not ice-cold."""
+    """Load embedder / Milvus and index seed docs in background (do not block health)."""
     try:
         from corp_os.rag.embeddings import get_embedder
+        from corp_os.rag.store import reindex_active_documents
         from corp_os.config import get_settings
 
         settings = get_settings()
@@ -42,6 +43,12 @@ def _warmup_rag_stack() -> None:
             from corp_os.rag import milvus_store
 
             milvus_store.ensure_collection(dim=len(_))
+        db = SessionLocal()
+        try:
+            stats = reindex_active_documents(db)
+            logger.info("RAG reindex finished: %s", stats)
+        finally:
+            db.close()
         logger.info("RAG warmup finished (%s / %s)", settings.embedding_provider, settings.vector_store)
     except Exception:  # noqa: BLE001
         logger.exception("RAG warmup failed (chat will still work, first RAG may be slow)")
