@@ -14,7 +14,7 @@ cd deploy && cp .env.example .env && docker compose up -d
 PYTHONPATH=src .venv/bin/alembic upgrade head
 ```
 
-## 启动
+## 本地开发启动
 
 ```bash
 # 后端（先起 Postgres）
@@ -28,6 +28,37 @@ cd web && npm run dev
 - 前端 http://127.0.0.1:5173  
 - API http://127.0.0.1:8001/docs  
 - 登录：`alice` / `demo123`（更多账号见 seed）
+
+## 服务器 Docker 部署
+
+需要：Docker + Docker Compose。默认前端端口 **8081**（与 `company-er` 的 8080 错开）。
+
+```bash
+# 1) 代码放到服务器后
+cd deploy
+cp .env.example .env
+# 编辑 .env：改 POSTGRES_PASSWORD / MINIO_SECRET_KEY /
+# CORP_OS_SECRET_KEY / CORP_OS_CORS_ORIGINS=http://你的IP:8081
+
+# 2) 启动（首次构建较慢：会装 sentence-transformers / 拉 embedding 模型）
+docker compose --profile app up -d --build
+docker compose --profile app ps
+docker compose logs -f api
+```
+
+
+访问：
+
+- 前端：`http://服务器IP:8081`
+- API：`http://服务器IP:8001/docs`
+- 登录：`alice` / `demo123`（立刻改密；生产务必换 `CORP_OS_SECRET_KEY`）
+
+同机已部署 `company-er` 时，可在 `.env` 打开：
+
+```bash
+CORP_OS_ERP_ENABLED=true
+CORP_OS_ERP_BASE_URL=http://host.docker.internal:8080
+```
 
 ## 上传线怎么读代码
 
