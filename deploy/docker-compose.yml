@@ -62,9 +62,9 @@ services:
       ETCD_SNAPSHOT_COUNT: "50000"
     command: >
       etcd
-      -advertise-client-urls=http://127.0.0.1:2379
-      -listen-client-urls http://0.0.0.0:2379
-      --data-dir /etcd
+      -advertise-client-urls=http://etcd:2379
+      -listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
     volumes:
       - corp_os_etcd_data:/etcd
     healthcheck:
