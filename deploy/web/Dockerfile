@@ -8,7 +8,9 @@ COPY web/package.json web/package-lock.json ./
 RUN npm ci
 
 COPY web/ ./
-RUN npm run build
+# Docker 构建跳过 vue-tsc（小内存机器上容易卡住/被 OOM）；类型检查留给本地/CI
+ENV NODE_OPTIONS=--max-old-space-size=2048
+RUN npx vite build
 
 FROM nginx:alpine
 COPY --from=build /web/dist /usr/share/nginx/html
